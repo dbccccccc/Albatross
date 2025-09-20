@@ -90,24 +90,31 @@ class RWKV_x070(MyModule):
     def __init__(self, args):
         super().__init__()
         self.args = args
-        self.n_embd = args.n_embd
-        self.n_layer = args.n_layer
+        args.head_size = 64
         self.eval()
         
         self.z = torch.load(args.MODEL_NAME + '.pth', map_location='cuda')
         z = self.z
         self.n_head, self.head_size = z['blocks.0.att.r_k'].shape
+        args.n_embd = self.n_head * self.head_size
 
         assert HEAD_SIZE == self.head_size
         assert self.head_size == args.head_size
 
         keys = list(z.keys())
+        max_layer = -1
         for k in keys:
             if 'key.weight' in k or 'value.weight' in k or 'receptance.weight' in k or 'output.weight' in k or 'head.weight' in k:
                 z[k] = z[k].t()
             z[k] = z[k].squeeze().to(dtype=DTYPE)
             if k.endswith('att.r_k'): z[k] = z[k].flatten()
             z[k] = z[k].contiguous()
+            kk = k.split('.')
+            if kk[0] == 'blocks':
+                max_layer = max(max_layer, int(kk[1]))
+        args.n_layer = max_layer + 1
+        print(args)
+        self.n_layer, self.n_embd = args.n_layer, args.n_embd
 
         z['emb.weight'] = F.layer_norm(z['emb.weight'], (args.n_embd,), weight=z['blocks.0.ln0.weight'], bias=z['blocks.0.ln0.bias'])
         z['blocks.0.att.v0'] = z['blocks.0.att.a0'] # actually ignored

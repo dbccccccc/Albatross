@@ -9,20 +9,10 @@ args.head_size = 64
 # model download: https://huggingface.co/BlinkDL/rwkv7-g1
 #
 # args.MODEL_NAME = "/mnt/e/RWKV-Runner/models/rwkv7-g1a-0.1b-20250728-ctx4096"
-# args.n_layer = 12
-# args.n_embd = 768
 args.MODEL_NAME = "/mnt/e/RWKV-Runner/models/rwkv7-g1a-0.4b-20250905-ctx4096"
-args.n_layer = 24
-args.n_embd = 1024
 # args.MODEL_NAME = "/mnt/e/RWKV-Runner/models/rwkv7-g1-1.5b-20250429-ctx4096"
-# args.n_layer = 24
-# args.n_embd = 2048
 # args.MODEL_NAME = "/mnt/e/RWKV-Runner/models/rwkv7-g1-2.9b-20250519-ctx4096"
-# args.n_layer = 32
-# args.n_embd = 2560
 # args.MODEL_NAME = "/mnt/e/RWKV-Runner/models/rwkv7-g0a-7.2b-20250829-ctx4096"
-# args.n_layer = 32
-# args.n_embd = 4096
 
 prompt = 'User: Evaluate $(1+2i)6-3i$.\n\nAssistant: <think'
 BATCH_SIZE = 320
