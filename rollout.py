@@ -47,23 +47,17 @@ model = RWKV_x070(args)
 tokenizer = TRIE_TOKENIZER("reference/rwkv_vocab_v20230424.txt")
 
 # init state
-state = [None for _ in range(args.n_layer * 3)]
-for i in range(args.n_layer):
-    state[i*3+0] = torch.zeros((BATCH_SIZE, args.n_embd), dtype=torch.half, requires_grad=False, device="cuda")
-    state[i*3+1] = torch.zeros((BATCH_SIZE, args.n_embd // args.head_size, args.head_size, args.head_size), dtype=torch.float, requires_grad=False, device="cuda")
-    state[i*3+2] = torch.zeros((BATCH_SIZE, args.n_embd), dtype=torch.half, requires_grad=False, device="cuda")
-
-tokens = [tokenizer.encode(prompt) for _ in range(BATCH_SIZE)]
-out, state = model.forward_batch(tokens, state)
+state = model.generate_zero_state(BATCH_SIZE)
+out = model.forward_batch([tokenizer.encode(prompt) for _ in range(BATCH_SIZE)], state)
 
 all_out = []
 
-print('rollout...', end='')
+print(f'rollout {GENERATION_LENGTH} tokens...', end='')
 
 for i in range(GENERATION_LENGTH):
     token = sampler_simple_batch(out, noise=DECODE_NOISE, temp=DECODE_TEMP).tolist()
     all_out.append(token)
-    out, state = model.forward_batch(token, state)
+    out = model.forward_batch(token, state)
     if i % 10 == 0:
         print(i, end=' ', flush=True)
 print('\n' + '#'*80 + '\n')
@@ -77,7 +71,7 @@ for n in range(BATCH_SIZE):
     if eod.size:
         tokens = tokens[:eod[0]] # get tokens before eod (token 0)
 
-    out_str = tokenizer.decode(tokens).strip()
+    out_str = tokenizer.decode(tokens, utf8_errors="ignore").strip()
     # print(out_str)
     # print('\n' + '#'*80 + '\n')
     if eod.size:
