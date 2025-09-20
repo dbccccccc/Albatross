@@ -25,6 +25,7 @@ GENERATION_LENGTH = 1000
 # we use simple sampling = greedy(logits + noise)
 DECODE_NOISE = 1.0
 DECODE_TEMP = 0.5
+LOG_FILE = open("rollout.log", "w")
 
 ########################################################################################################
 
@@ -42,7 +43,7 @@ out = model.forward_batch([tokenizer.encode(prompt) for _ in range(BATCH_SIZE)],
 
 all_out = []
 
-print(f'rollout {GENERATION_LENGTH} tokens...', end='')
+print(f'rollout {GENERATION_LENGTH} tokens...', end=' ')
 
 for i in range(GENERATION_LENGTH):
     token = sampler_simple_batch(out, noise=DECODE_NOISE, temp=DECODE_TEMP).tolist()
@@ -50,7 +51,7 @@ for i in range(GENERATION_LENGTH):
     out = model.forward_batch(token, state)
     if i % 10 == 0:
         print(i, end=' ', flush=True)
-print('\n' + '#'*80 + '\n')
+print('\n' + '#'*120 + '\n')
 
 all_out = np.transpose(np.array(all_out), axes=(1,0,2)).squeeze(-1)
 
@@ -62,10 +63,11 @@ for n in range(BATCH_SIZE):
         tokens = tokens[:eod[0]] # get tokens before eod (token 0)
 
     out_str = tokenizer.decode(tokens, utf8_errors="ignore").strip()
-    # print(out_str)
-    # print('\n' + '#'*80 + '\n')
+    LOG_FILE.write(out_str + '\n' + '#'*120 + '\n')
     if eod.size:
         print(out_str.splitlines()[-1].strip())
     else:
         print(f'(unfinished within {GENERATION_LENGTH} tokens)')
-    print('#'*80)
+    print('#'*120)
+
+LOG_FILE.close()

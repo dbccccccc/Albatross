@@ -42,12 +42,12 @@ tokenizer = TRIE_TOKENIZER("reference/rwkv_vocab_v20230424.txt")
 # prompts = ["The apple can be", "The cat can be"]
 # prompts = ["The apple can't be", "The cat can't be"]
 prompts = ["The apple can be", "The cat can't be", "他们发现，这", "Q: 1+1=?\nA: 1+1=2."]
-tokens = [tokenizer.encode(prompt) for prompt in prompts]
+BATCH_SIZE = len(prompts)
 
-state = model.generate_zero_state(len(prompts))
-init_outs = model.forward_batch(tokens, state)
+state = model.generate_zero_state(BATCH_SIZE)
+init_outs = model.forward_batch([tokenizer.encode(prompt) for prompt in prompts], state)
 
-for n in range(len(prompts)):
+for n in range(BATCH_SIZE):
     print(prompts[n])
     init_out = init_outs[n]
     probs = F.softmax(init_out.float(), dim=-1) # compute softmax in float (more accurate)
@@ -57,7 +57,7 @@ for n in range(len(prompts)):
         token = tokenizer.decode([token_id])
         token_prob = probs[token_id].item()
         print(repr(token), f'[probability {token_prob:.2%}]')
-    if n != len(prompts)-1:
+    if n != BATCH_SIZE-1:
         print()
 
 ########################################################################################################
