@@ -106,7 +106,7 @@ class TRIE:
 
 class TRIE_TOKENIZER():
     def __init__(self, file_name):
-        self.idx2token = {}
+        self.idx2token = {0:"<|endoftext|>".encode("utf-8")} # add <|endoftext|>
         sorted = [] # must be already sorted
         with open(file_name, "r", encoding="utf-8") as f:
             lines = f.readlines()
@@ -121,7 +121,8 @@ class TRIE_TOKENIZER():
 
         self.token2idx = {}
         for k,v in self.idx2token.items():
-            self.token2idx[v] = int(k)
+            if k != 0: # ignore <|endoftext|>
+                self.token2idx[v] = int(k)
 
         self.root = TRIE()
         for t, i in self.token2idx.items():
@@ -134,7 +135,7 @@ class TRIE_TOKENIZER():
             _idx:int = idx
             idx, _, values = self.root.find_longest(src, idx)
             assert(idx != _idx)
-            _, token = next(iter(values))            
+            _, token = next(iter(values))
             tokens.append(token)
         return tokens
 
@@ -144,11 +145,8 @@ class TRIE_TOKENIZER():
     def encode(self, src):
         return self.encodeBytes(src.encode("utf-8"))
 
-    def decode(self, tokens):
-        try:
-            return self.decodeBytes(tokens).decode('utf-8')
-        except:
-            return '\ufffd' # bad utf-8
+    def decode(self, tokens, utf8_errors="strict"):
+        return self.decodeBytes(tokens).decode('utf-8', errors=utf8_errors)
 
     def printTokens(self, tokens):
         for i in tokens:

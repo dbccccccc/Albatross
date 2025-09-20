@@ -13,20 +13,28 @@ GRID_W, GRID_H = 16, 8
 NUM_PANELS = GRID_W * GRID_H
 BATCH_SIZE = NUM_PANELS
 GENERATION_LENGTH = 4000
+# GENERATION_LENGTH = 1000
 SAMPLER_NOISE = 3.0 # here we use simple (fast) sampling = greedy(logits + noise)
 
 # find some random tokens as first token?
-# words = []
+# prompts = []
 # with open("reference/rwkv_vocab_v20230424.txt", "r", encoding="utf-8") as f:
 #     lines = f.readlines()
 #     for l in lines:
 #         x = eval(l[l.index(' '):l.rindex(' ')])
 #         if isinstance(x, str) and all(c.isalpha() for c in x) and x[0].isupper() and all(c.islower() for c in x[1:]) and ' ' not in x:
-#             words.append(x)
-# words = random.sample(words, BATCH_SIZE)
+#             prompts.append(x)
+# prompts = random.sample(prompts, BATCH_SIZE)
 
 # or, use "The" for all panels?
-words = ["The" for _ in range(BATCH_SIZE)]
+prompts = ["The" for _ in range(BATCH_SIZE)]
+# prompts = ["List of Emojis:" for _ in range(BATCH_SIZE)]
+# prompts = ["Q: 1+1=?\nA: 1+1=2." for _ in range(BATCH_SIZE)]
+# prompts = ["Assistant: <think" for _ in range(BATCH_SIZE)]
+# prompts = ["Assistant: <think>嗯" for _ in range(BATCH_SIZE)]
+# prompts = ["Assistant: <think>私" for _ in range(BATCH_SIZE)]
+SHOW_SPEED_PERCENTILE = 50
+LOG_FILE = open("demo.log", "w")
 
 ########################################################################################################
 
@@ -63,46 +71,53 @@ def computation_process(text_queue, shutdown_event):
         # Initialize model
         model = RWKV_x070(args)
         tokenizer = TRIE_TOKENIZER("reference/rwkv_vocab_v20230424.txt")
-        
+
         # Initialize state
         state = model.generate_zero_state(BATCH_SIZE)
         
-        # Send initial words to UI
-        for i, word in enumerate(words):
-            text_queue.put(("text", i, word))
+        # Send initial prompts to UI
+        for i, prompt in enumerate(prompts):
+            text_queue.put(("text", i, prompt))
         
-        # Initial state with initial words
-        tokens = [tokenizer.encode(prompt) for prompt in words]
-        out = model.forward_batch(tokens, state)
+        # Initial state with initial prompts
+        out = model.forward_batch([tokenizer.encode(prompt) for prompt in prompts], state)
         
         perf_interval = 10
         times = []
         all_times = []
+        tokens = [[] for _ in range(BATCH_SIZE)]
         
         for i in range(GENERATION_LENGTH):
             if shutdown_event.is_set():
                 break
                 
             t00 = time.perf_counter()
-            token = sampler_simple_batch(out, SAMPLER_NOISE).tolist()
-            
+            new_tokens = sampler_simple_batch(out, SAMPLER_NOISE).tolist()
+            tokens = [tokens[n] + new_tokens[n] for n in range(BATCH_SIZE)]
+
             # Send decoded tokens to UI
             for n in range(BATCH_SIZE):
-                decoded_text = tokenizer.decode(token[n])
-                text_queue.put(("text", n, decoded_text))
+                try:
+                    decoded_text = tokenizer.decode(tokens[n], utf8_errors="strict") # only send full utf-8 tokens
+                    text_queue.put(("text", n, decoded_text))
+                    tokens[n] = []
+                except:
+                    pass
             
             torch.cuda.synchronize()
             t0 = time.perf_counter()
-            out = model.forward_batch(token, state)
+            out = model.forward_batch(new_tokens, state)
             torch.cuda.synchronize()
             t1 = time.perf_counter()
 
             times.append(t1 - t0)
             all_times.append(t1 - t00)
 
+            # time.sleep(0.1)
+
             if i % perf_interval == 0:
-                times_tmp = np.percentile(times, 10) if times else 0
-                all_times_tmp = np.percentile(all_times, 10) if all_times else 0
+                times_tmp = np.percentile(times, SHOW_SPEED_PERCENTILE) if times else 0
+                all_times_tmp = np.percentile(all_times, SHOW_SPEED_PERCENTILE) if all_times else 0
                 times.clear()
                 all_times.clear()
                 # Send performance info to main process
@@ -111,7 +126,7 @@ def computation_process(text_queue, shutdown_event):
                     
     except Exception as e:
         text_queue.put(("error", -1, f"Error: {str(e)}"))
-        print(e)
+        LOG_FILE.write(str(e) + "\n")
     finally:
         text_queue.put(("done", -1, "Finished"))
 
@@ -382,9 +397,8 @@ if __name__=="__main__":
     try:
         # Start UI in main process
         start_ui(fps=30, text_queue=text_queue)
-        
-    except KeyboardInterrupt:
-        print("\nInterrupted by user")
+    except Exception as e:
+        LOG_FILE.write(str(e) + "\n")
     finally:
         # Signal computation process to shutdown
         shutdown_event.set()
@@ -406,3 +420,5 @@ if __name__=="__main__":
         import os
         os.system('stty sane')  # Reset terminal settings
         print("\nDemo completed! Terminal restored.")
+
+        LOG_FILE.close()

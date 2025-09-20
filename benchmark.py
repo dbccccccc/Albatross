@@ -15,6 +15,8 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed(SEED)
 
+SHOW_SPEED_PERCENTILE = 50
+
 ########################################################################################################
 
 args = types.SimpleNamespace()
@@ -71,17 +73,15 @@ probs = F.softmax(init_out.float(), dim=-1) # compute softmax in float (more acc
 _, indices = torch.topk(probs, 5) # print top-5 possibilities
 for i in range(len(indices)):
     token_id = indices[i].item()
-    if token_id == 0:
-        continue
     token = tokenizer.decode([token_id])
     token_prob = probs[token_id].item()
-    print(token, f'[probability {token_prob:.2%}]')
+    print(repr(token), f'[probability {token_prob:.2%}]')
 
 ########################################################################################################
 
 xprint("Batch")
 
-prompts = ["The apple can be", "The cat can be"]
+prompts = ["The apple can be", "The cat can't be", "Q: 1+1=?\nA: 1+1=2."]
 tokens = [tokenizer.encode(prompt) for prompt in prompts]
 
 # print(tokens)
@@ -92,11 +92,9 @@ tokens = [tokenizer.encode(prompt) for prompt in prompts]
 #     _, indices = torch.topk(probs, 5) # print top-5 possibilities
 #     for i in range(len(indices)):
 #         token_id = indices[i].item()
-#         if token_id == 0:
-#             continue
 #         token = tokenizer.decode([token_id])
 #         token_prob = probs[token_id].item()
-#         print(token, f'[probability {token_prob:.2%}]')
+#         print(repr(token), f'[probability {token_prob:.2%}]')
 
 init_outs = model.forward_batch(tokens, model.generate_zero_state(len(prompts)))
 for n in range(len(prompts)):
@@ -106,11 +104,9 @@ for n in range(len(prompts)):
     _, indices = torch.topk(probs, 5) # print top-5 possibilities
     for i in range(len(indices)):
         token_id = indices[i].item()
-        if token_id == 0:
-            continue
-        token = tokenizer.decode([token_id])
+        token = tokenizer.decode([token_id], utf8_errors="replace")
         token_prob = probs[token_id].item()
-        print(token, f'[probability {token_prob:.2%}]')
+        print(repr(token), f'[probability {token_prob:.2%}]')
     if n != len(prompts)-1:
         print()
 
@@ -137,10 +133,9 @@ for i in range(LENGTH_PER_TRIAL):
     token = sampler_simple(out, noise=0).item()
     all_tokens += [token]
     try:
-        tmp = tokenizer.decode(all_tokens[out_last:])
-        if '\ufffd' not in tmp: # only print when we have a valid utf-8 string
-            print(tmp, end="", flush=True)
-            out_last = i+1
+        tmp = tokenizer.decode(all_tokens[out_last:], utf8_errors="strict")
+        print(tmp, end="", flush=True) # only print when we have a valid utf-8 string
+        out_last = i+1
     except:
         pass
     torch.cuda.synchronize()
@@ -150,15 +145,17 @@ for i in range(LENGTH_PER_TRIAL):
     t1 = time.perf_counter()
     times.append(t1 - t0)
     all_times.append(t1 - t00)
-times = np.percentile(times, 10)
-all_times = np.percentile(all_times, 10)
+times = np.percentile(times, SHOW_SPEED_PERCENTILE)
+all_times = np.percentile(all_times, SHOW_SPEED_PERCENTILE)
 print(f'\n\nToken/s = {round(1/times,2)} (forward), {round(1/all_times,2)} (full) || Bandwidth = {round(active_GB/times,2)} GB/s || {round(time.perf_counter()-t000,3)}s')
+
+# exit(0)
 
 #######################################################################################################
 
 xprint("Decode (batch)")
 
-for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(8, 512, 8)]:
+for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(8, 512+8, 8)]:
 # for BSZ in [2**n for n in range(1,8)]:
     torch.cuda.empty_cache()
     gc.collect()
@@ -169,7 +166,7 @@ for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(8, 512, 8)]:
 
     time.sleep(1)
     if BSZ == 2:
-        prompts = ["The apple can be", "The cat can be"]
+        prompts = ["The apple can be", "The cat can't be"]
     else:
         prompts = ["The apple can be" for _ in range(BSZ)]
     nnn = len(prompts)
@@ -200,25 +197,18 @@ for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(8, 512, 8)]:
         times.append(t1 - t0)
         all_times.append(t1 - t00)
 
-    times = np.percentile(times, 10)
-    all_times = np.percentile(all_times, 10)
+    times = np.percentile(times, SHOW_SPEED_PERCENTILE)
+    all_times = np.percentile(all_times, SHOW_SPEED_PERCENTILE)
 
     if BSZ == 2:
         print('\n')
         for n in range(nnn):
             print(prompts[n], end='')
             aaa_tokens = []
-            out_last = 0
             for i in range(LENGTH_PER_TRIAL):
                 aaa_tokens += all_tokens[i][n]
-                try:
-                    tmp = tokenizer.decode(aaa_tokens[out_last:])
-                    if '\ufffd' not in tmp: # only print when we have a valid utf-8 string
-                        print(tmp, end="", flush=True)
-                        out_last = i+1
-                except:
-                    pass
-            print('\n')
+            print(tokenizer.decode(aaa_tokens, utf8_errors="ignore"))
+            print('#'*80)
 
     print(f'Bsz {BSZ} || Token/s = {round(nnn/times,2)} (forward), {round(nnn/all_times,2)} (full) || {round(time.perf_counter()-t000,3)}s')
 
@@ -230,7 +220,7 @@ raw = open("eval/calibration_data_v5_rc.txt").read()
 tokens = tokenizer.encode(raw)
 # print(len(tokens))
 
-for stage in range(9, 12+1):
+for stage in range(8, 12+1):
     CTX_LEN = 2**stage
     loss = 0
     a = 0
@@ -253,7 +243,7 @@ for stage in range(9, 12+1):
             cnt += 1
         a += CTX_LEN
 
-    times = np.percentile(times, 10)
+    times = np.percentile(times, SHOW_SPEED_PERCENTILE)
     print(f'CTX_LEN {CTX_LEN} : avg loss {round(loss/cnt,4)} || prefill {round((CTX_LEN-1)/times)} token/s = {round((CTX_LEN-1)/times * active_params * 2/1e12, 2)} TFLOPS')
 
 #######################################################################################################

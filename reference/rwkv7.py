@@ -136,15 +136,15 @@ class RWKV_x070(MyModule):
         
     def forward_batch(self, tokens, state, full_output=False): # will modify state in-place
         assert type(tokens) is list
-        if len(set([len(x) for x in tokens])) == 1:
+        lengths = [len(x) for x in tokens]
+        if len(set(lengths)) == 1:
             return self.forward_batch_same_length(tokens, state, full_output)
 
         bsz = len(tokens)
-        lengths = [len(t) for t in tokens]
         pos = [0] * bsz
 
         out = None
-        while True:  # !!! FIXME !!! messy code
+        while True:
             active = [i for i in range(bsz) if pos[i] < lengths[i]]
             if not active:
                 break
