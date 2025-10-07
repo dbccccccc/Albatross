@@ -17,6 +17,8 @@ torch.cuda.manual_seed(SEED)
 
 SHOW_SPEED_PERCENTILE = 50
 
+print("\n!!! seems currently CUDAGraph takes LOTS OF VRAM and prevent us from using large bsz !!!\n"*3)
+
 ########################################################################################################
 
 args = types.SimpleNamespace()
@@ -143,13 +145,6 @@ print(f'\n\nToken/s = {round(1/times,2)} (forward), {round(1/all_times,2)} (full
 
 xprint("Decode (CUDAGraph)")
 
-static_input = torch.empty((model.args.n_embd), device="cuda", dtype=torch.half)
-static_state = [torch.empty_like(state[0], device="cuda"), torch.empty_like(state[1], device="cuda")]
-static_output = torch.empty((model.args.vocab_size), device="cuda", dtype=torch.half)
-g = torch.cuda.CUDAGraph()
-with torch.cuda.graph(g):
-    static_output = model.forward_one_alt(static_input, static_state)
-
 prompt = "User: simulate SpaceX mars landing using python\n\nAssistant: <think"
 LENGTH_PER_TRIAL = 256
 TEMPERATURE = 1.0
@@ -160,8 +155,15 @@ all_tokens = []
 out_last = 0
 
 state = model.generate_zero_state(0)
-out = model.forward(tokenizer.encode(prompt), state)
 
+static_input = torch.empty((model.args.n_embd), device="cuda", dtype=torch.half)
+static_state = [torch.empty_like(state[0], device="cuda"), torch.empty_like(state[1], device="cuda")]
+static_output = torch.empty((model.args.vocab_size), device="cuda", dtype=torch.half)
+g = torch.cuda.CUDAGraph()
+with torch.cuda.graph(g):
+    static_output = model.forward_one_alt(static_input, static_state)
+
+out = model.forward(tokenizer.encode(prompt), state)
 static_state[0].copy_(state[0])
 static_state[1].copy_(state[1])
 static_output.copy_(out)
@@ -180,9 +182,9 @@ for i in range(LENGTH_PER_TRIAL):
     except:
         pass
 
-    static_input.copy_(model.z['emb.weight'][token])
     torch.cuda.synchronize()
     t0 = time.perf_counter()
+    static_input.copy_(model.z['emb.weight'][token])
     g.replay()
     torch.cuda.synchronize()
     t1 = time.perf_counter()
@@ -197,8 +199,8 @@ print(f'\n\nToken/s = {round(1/times,2)} (forward), {round(1/all_times,2)} (full
 
 xprint("Decode (batch)")
 
-for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(8, 512+8, 8)]:
-# for BSZ in [2**n for n in range(1,8)]:
+for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(32, 512+32, 32)]:
+# for BSZ in [2**n for n in range(1,3)]:
     torch.cuda.empty_cache()
     gc.collect()
     torch.cuda.empty_cache()
@@ -220,6 +222,7 @@ for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(8, 512+8, 8)]:
     if BSZ == 2:
         print('wait', end='')
     all_tokens = []
+    
     out = model.forward_batch(tokens, state)
 
     times = []
@@ -234,6 +237,79 @@ for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(8, 512+8, 8)]:
         torch.cuda.synchronize()
         t0 = time.perf_counter()
         out = model.forward_batch(token, state)
+        torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        times.append(t1 - t0)
+        all_times.append(t1 - t00)
+
+    times = np.percentile(times, SHOW_SPEED_PERCENTILE)
+    all_times = np.percentile(all_times, SHOW_SPEED_PERCENTILE)
+
+    if BSZ == 2:
+        print('\n')
+        for n in range(nnn):
+            print(prompts[n], end='')
+            aaa_tokens = []
+            for i in range(LENGTH_PER_TRIAL):
+                aaa_tokens += all_tokens[i][n]
+            print(tokenizer.decode(aaa_tokens, utf8_errors="ignore"))
+            print('#'*80)
+
+    print(f'Bsz {BSZ} || Token/s = {round(nnn/times,2)} (forward), {round(nnn/all_times,2)} (full) || {round(time.perf_counter()-t000,3)}s')
+
+#######################################################################################################
+
+xprint("Decode (batch CUDAGraph)")
+
+for BSZ in [2**n for n in range(1,8)] + [128 + n for n in range(32, 512+32, 32)]:
+# for BSZ in [2**n for n in range(1,3)]:
+    torch.cuda.empty_cache()
+    gc.collect()
+    torch.cuda.empty_cache()
+    gc.collect()
+
+    time.sleep(1)
+    if BSZ == 2:
+        prompts = ["The apple can be", "The cat can't be"]
+    else:
+        prompts = ["The apple can be" for _ in range(BSZ)]
+    nnn = len(prompts)
+    tokens = [tokenizer.encode(prompt) for prompt in prompts]
+    LENGTH_PER_TRIAL = 32
+    # TEMPERATURE = 1.0
+    # TOP_P = 0.0
+
+    if BSZ == 2:
+        print('wait', end='')
+    all_tokens = []
+
+    state = model.generate_zero_state(BSZ)
+
+    static_input = torch.empty((BSZ, 1, model.args.n_embd), device="cuda", dtype=torch.half)
+    static_state = [torch.empty_like(state[0], device="cuda"), torch.empty_like(state[1], device="cuda")]
+    static_output = torch.empty((BSZ, model.args.vocab_size), device="cuda", dtype=torch.half)
+    g = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(g):
+        static_output = model.forward_one_batch_alt(static_input, static_state)
+
+    out = model.forward_batch(tokens, state)
+    static_state[0].copy_(state[0])
+    static_state[1].copy_(state[1])
+    static_output.copy_(out)
+
+    times = []
+    all_times = []
+    t000 = time.perf_counter()
+    for i in range(LENGTH_PER_TRIAL):
+        t00 = time.perf_counter()
+        token = sampler_simple_batch(static_output, noise=0).tolist()
+        all_tokens += [token]
+        if BSZ == 2:
+            print('.', end='', flush=True)
+        torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        static_input.copy_(model.z['emb.weight'][torch.tensor(token, device="cuda")])
+        g.replay()
         torch.cuda.synchronize()
         t1 = time.perf_counter()
         times.append(t1 - t0)
