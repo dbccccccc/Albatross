@@ -1,9 +1,11 @@
 # Albatross
 efficient RWKV inference engine
 
-## Result @ 251009
+## Result @ 251103
 
-10000+ token/s obtained in https://github.com/MollySophia/Albatross/tree/fp16
+10250+ token/s RWKV-7 7.2B fp16 bsz960 @ RTX5090 obtained in https://github.com/BlinkDL/Albatross/tree/main/faster_251101
+
+123+ token/s RWKV-7 7.2B fp16 bsz1 @ RTX5090 with CUDAGraph and sparse FFN (lossless)
 
 ## Result @ 251007
 
