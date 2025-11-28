@@ -1,6 +1,12 @@
 # Albatross
 efficient RWKV inference engine
 
+## Result @ 251127
+
+145+ token/s RWKV-7 7.2B fp16 bsz1 @ RTX5090
+
+Code: https://github.com/Triang-jyed-driung/Albatross/tree/fp16
+
 ## Result @ 251103
 
 10250+ token/s RWKV-7 7.2B fp16 bsz960 @ RTX5090
