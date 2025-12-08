@@ -208,7 +208,7 @@ class RWKV_x070(MyModule):
             x = x @ z['head.weight']
             return x
         
-    @MyFunction
+    # @MyFunction # disable JIT => faster for CUDAGraph
     def forward_one_alt(self, x:torch.Tensor, state:List[torch.Tensor]):
         with torch.no_grad(): 
             z = self.z
