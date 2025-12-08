@@ -5,8 +5,6 @@
 
 typedef at::Half dtype;
 
-template <int N> struct SharedVec { float _[N+1]; };
-
 template <int N, typename F> __launch_bounds__(N, 2)
 __global__ void kernel_forward(const int B, const int T, const int C, const int H,
                                float *__restrict__ _state, const F *__restrict__ const _r, const F *__restrict__ const _w, const F *__restrict__ const _k, const F *__restrict__ const _v,
@@ -22,36 +20,36 @@ __global__ void kernel_forward(const int B, const int T, const int C, const int 
     for (int j = 0; j < N; ++j)
         state[j] = _state[j];
 
-    __shared__ SharedVec<N> r;
-    __shared__ SharedVec<N> w;
-    __shared__ SharedVec<N> k;
-    __shared__ SharedVec<N> a;
-    __shared__ SharedVec<N> b;
+    __shared__ float r[N];
+    __shared__ float w[N];
+    __shared__ float k[N];
+    __shared__ float a[N];
+    __shared__ float b[N];
 
     for (int _t = 0; _t < T; ++_t)
     {
-        const int t = bbb*T*C + h*_N_ + i + _t * C;
+        const int t = bbb*T*C + h*N + i + _t * C;
         __syncthreads();
-        r._[i] = float(_r[t]);
-        w._[i] = __expf(-0.6065306597f * float(_w[t])); // 0.6065306597 = exp(-0.5)
-        k._[i] = float(_k[t]);
-        a._[i] = float(_a[t]);
-        b._[i] = float(_b[t]);
+        r[i] = float(_r[t]);
+        w[i] = __expf(-0.6065306597f * float(_w[t])); // 0.6065306597 = exp(-0.5)
+        k[i] = float(_k[t]);
+        a[i] = float(_a[t]);
+        b[i] = float(_b[t]);
         __syncthreads();
 
         float sa = 0.0f;
         #pragma unroll
         for (int j = 0; j < N; ++j)
-            sa = fmaf(state[j], a._[j], sa);
+            sa += state[j] * a[j];
 
-        const float v_ = float(_v[t]);
+        const float vi = float(_v[t]);
         float y = 0.0f;
         #pragma unroll
         for (int j = 0; j < N; ++j)
         {
             float s = state[j];
-            s = fmaf(s, w._[j], fmaf(sa, b._[j], k._[j] * v_));
-            y = fmaf(s, r._[j], y);
+            s = s * w[j] + (sa * b[j] + k[j] * vi);
+            y += s * r[j];
             state[j] = s;
         }
         _y[t] = F(y);
