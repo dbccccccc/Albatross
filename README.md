@@ -1,5 +1,8 @@
 # Albatross
+
 efficient RWKV inference engine
+
+fast fwd & bwd CUDA kernels: https://github.com/BlinkDL/RWKV-CUDA/tree/main/rwkv7_fast_fused
 
 ## Result @ 251127
 
