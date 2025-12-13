@@ -4,9 +4,11 @@ efficient RWKV inference engine
 
 fast fwd & bwd CUDA kernels: https://github.com/BlinkDL/RWKV-CUDA/tree/main/rwkv7_fast_fused
 
-## Result @ 251127
+## Result @ 251201
 
 145+ token/s RWKV-7 7.2B fp16 bsz1 @ RTX5090
+
+11289 token/s RWKV-7 7.2B fp16 bsz1 prefill @ RTX5090
 
 Code: https://github.com/Triang-jyed-driung/Albatross/tree/fp16
 
