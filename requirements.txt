@@ -1,0 +1,21 @@
+# RWKV-7 Inference Server Dependencies
+
+# Core
+torch>=2.0.0
+numpy>=1.24.0
+
+# API Server
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0.0
+
+# Async support
+aiohttp>=3.8.0
+
+# Optional: Monitoring
+# prometheus-client>=0.17.0
+
+# Development
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
+# httpx>=0.24.0  # For testing FastAPI
