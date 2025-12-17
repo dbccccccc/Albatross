@@ -52,17 +52,11 @@ def scatter_states_jit(
         new_state0: [n_layer, 2, batch_size, n_embd] - source
         new_state1: [n_layer, batch_size, n_head, head_size, head_size] - source
     """
-    batch_size = indices.shape[0]
-
-    # Scatter state0
-    for i in range(batch_size):
-        idx = indices[i].item()
-        state0[:, :, idx, :] = new_state0[:, :, i, :]
-
-    # Scatter state1
-    for i in range(batch_size):
-        idx = indices[i].item()
-        state1[:, idx, :, :, :] = new_state1[:, i, :, :, :]
+    # Use index_copy_ for efficient in-place scatter (TorchScript compatible)
+    # Scatter state0 on dim 2
+    state0.index_copy_(2, indices, new_state0)
+    # Scatter state1 on dim 1
+    state1.index_copy_(1, indices, new_state1)
 
 
 @torch.jit.script
@@ -97,10 +91,12 @@ def reset_state_slots_batch_jit(
         state1: [n_layer, max_batch, n_head, head_size, head_size]
         indices: [batch_size] - slot indices to reset
     """
-    for i in range(indices.shape[0]):
-        idx = indices[i].item()
-        state0[:, :, idx, :].zero_()
-        state1[:, idx, :, :, :].zero_()
+    # Create zero tensors and use index_copy_ (TorchScript compatible)
+    zeros0 = torch.zeros_like(state0.index_select(2, indices))
+    state0.index_copy_(2, indices, zeros0)
+
+    zeros1 = torch.zeros_like(state1.index_select(1, indices))
+    state1.index_copy_(1, indices, zeros1)
 
 
 class OptimizedStateOperations:
