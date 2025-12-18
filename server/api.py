@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Optional, AsyncGenerator, TYPE_CHECKING
+from typing import List, Optional, AsyncGenerator, TYPE_CHECKING, Dict
 import asyncio
 import uuid
 import time
@@ -28,6 +28,10 @@ class CompletionRequest(BaseModel):
     temperature: float = Field(default=1.0, ge=0.0, le=2.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     top_k: int = Field(default=0, ge=0)
+    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
+    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
+    logit_bias: Optional[Dict[str, float]] = None
+    seed: Optional[int] = Field(default=None, ge=0)
     stop: Optional[List[str]] = None
     stream: bool = False
     user: Optional[str] = None
@@ -46,6 +50,10 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int = Field(default=256, ge=1, le=4096)
     temperature: float = Field(default=1.0, ge=0.0, le=2.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
+    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
+    logit_bias: Optional[Dict[str, float]] = None
+    seed: Optional[int] = Field(default=None, ge=0)
     stop: Optional[List[str]] = None
     stream: bool = False
     user: Optional[str] = None
@@ -215,6 +223,12 @@ class RWKVAPIServer:
             """Get engine statistics."""
             return self.engine.get_stats()
 
+    def _convert_logit_bias(self, logit_bias: Optional[Dict[str, float]]) -> Optional[Dict[int, float]]:
+        """Convert logit_bias from string keys (OpenAI format) to int keys."""
+        if logit_bias is None:
+            return None
+        return {int(k): v for k, v in logit_bias.items()}
+
     def _format_chat_messages(self, messages: List[ChatMessage]) -> str:
         """Convert chat messages to RWKV prompt format."""
         prompt_parts = []
@@ -242,6 +256,10 @@ class RWKVAPIServer:
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             top_p=request.top_p,
+            frequency_penalty=request.frequency_penalty,
+            presence_penalty=request.presence_penalty,
+            logit_bias=self._convert_logit_bias(request.logit_bias),
+            seed=request.seed,
             stop_sequences=request.stop,
             stream=False
         )
@@ -278,6 +296,10 @@ class RWKVAPIServer:
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             top_p=request.top_p,
+            frequency_penalty=request.frequency_penalty,
+            presence_penalty=request.presence_penalty,
+            logit_bias=self._convert_logit_bias(request.logit_bias),
+            seed=request.seed,
             stop_sequences=request.stop,
             stream=True
         )
@@ -337,6 +359,10 @@ class RWKVAPIServer:
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             top_p=request.top_p,
+            frequency_penalty=request.frequency_penalty,
+            presence_penalty=request.presence_penalty,
+            logit_bias=self._convert_logit_bias(request.logit_bias),
+            seed=request.seed,
             stop_sequences=request.stop,
             stream=False
         )
@@ -377,6 +403,10 @@ class RWKVAPIServer:
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             top_p=request.top_p,
+            frequency_penalty=request.frequency_penalty,
+            presence_penalty=request.presence_penalty,
+            logit_bias=self._convert_logit_bias(request.logit_bias),
+            seed=request.seed,
             stop_sequences=request.stop,
             stream=True
         )

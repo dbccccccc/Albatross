@@ -13,6 +13,7 @@ import logging
 from typing import List, Dict, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 from concurrent.futures import Future
+from collections import Counter
 
 from .config import EngineConfig
 from .state_pool import StatePool, SlotStatus
@@ -171,7 +172,16 @@ class ContinuousBatchingEngine:
                 # If prefill complete, sample first token
                 if slot.prefill_pos >= len(slot.prompt_tokens):
                     logits = outputs[i]
-                    token = self._sample_token(logits, slot.temperature, slot.top_p)
+                    token = self._sample_token(
+                        logits,
+                        slot.temperature,
+                        slot.top_p,
+                        frequency_penalty=slot.frequency_penalty,
+                        presence_penalty=slot.presence_penalty,
+                        logit_bias=slot.logit_bias,
+                        output_tokens=slot.output_tokens,
+                        generator=slot.generator
+                    )
 
                     slot.output_tokens.append(token)
                     slot.tokens_generated = 1
@@ -229,7 +239,16 @@ class ContinuousBatchingEngine:
             logits = outputs[i]
 
             # Sample next token
-            token = self._sample_token(logits, slot.temperature, slot.top_p)
+            token = self._sample_token(
+                logits,
+                slot.temperature,
+                slot.top_p,
+                frequency_penalty=slot.frequency_penalty,
+                presence_penalty=slot.presence_penalty,
+                logit_bias=slot.logit_bias,
+                output_tokens=slot.output_tokens,
+                generator=slot.generator
+            )
             slot.output_tokens.append(token)
             slot.tokens_generated += 1
             self.stats['total_tokens_generated'] += 1
@@ -285,39 +304,68 @@ class ContinuousBatchingEngine:
         logits: torch.Tensor,
         temperature: float = 1.0,
         top_p: float = 1.0,
-        top_k: int = 0
+        top_k: int = 0,
+        frequency_penalty: float = 0.0,
+        presence_penalty: float = 0.0,
+        logit_bias: Optional[Dict[int, float]] = None,
+        output_tokens: Optional[List[int]] = None,
+        generator: Optional[torch.Generator] = None
     ) -> int:
         """
-        Sample a token from logits with temperature and top-p.
+        Sample a token from logits with temperature, top-p, and penalties.
 
         Args:
             logits: Logits tensor [vocab_size]
             temperature: Sampling temperature (0 = greedy)
             top_p: Top-p (nucleus) sampling parameter
             top_k: Top-k sampling parameter (0 = disabled)
+            frequency_penalty: Penalty based on token frequency (reduces repetition)
+            presence_penalty: Penalty for token presence (increases diversity)
+            logit_bias: Dict mapping token IDs to bias values
+            output_tokens: List of previously generated tokens
+            generator: Optional torch.Generator for reproducible sampling
 
         Returns:
             Sampled token ID
         """
         with torch.no_grad():
-            # Greedy decoding
+            # Make a copy to avoid modifying original logits
+            logits = logits.float().clone()
+
+            # 1. Apply logit_bias
+            if logit_bias:
+                for token_id, bias in logit_bias.items():
+                    if 0 <= token_id < logits.size(-1):
+                        logits[token_id] += bias
+
+            # 2. Apply frequency and presence penalties
+            if output_tokens and (frequency_penalty != 0 or presence_penalty != 0):
+                token_counts = Counter(output_tokens)
+                for token_id, count in token_counts.items():
+                    if 0 <= token_id < logits.size(-1):
+                        if frequency_penalty != 0:
+                            logits[token_id] -= frequency_penalty * count
+                        if presence_penalty != 0:
+                            logits[token_id] -= presence_penalty
+
+            # Greedy decoding (after penalties applied)
             if temperature == 0 or temperature < 1e-6:
                 return torch.argmax(logits).item()
 
-            # Apply temperature
-            logits = logits.float() / temperature
+            # 3. Apply temperature
+            logits = logits / temperature
 
-            # Convert to probabilities
+            # 4. Convert to probabilities
             probs = F.softmax(logits, dim=-1)
 
-            # Top-k filtering
+            # 5. Top-k filtering
             if top_k > 0:
                 top_k = min(top_k, probs.size(-1))
                 top_k_probs, top_k_indices = torch.topk(probs, top_k)
                 probs = torch.zeros_like(probs)
                 probs.scatter_(-1, top_k_indices, top_k_probs)
 
-            # Top-p (nucleus) filtering
+            # 6. Top-p (nucleus) filtering
             if top_p < 1.0:
                 sorted_probs, sorted_indices = torch.sort(probs, descending=True)
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
@@ -332,11 +380,14 @@ class ContinuousBatchingEngine:
                 )
                 probs[indices_to_remove] = 0
 
-            # Renormalize
+            # 7. Renormalize
             probs = probs / (probs.sum() + 1e-8)
 
-            # Sample
-            return torch.multinomial(probs, num_samples=1).item()
+            # 8. Sample (use generator for reproducible sampling if provided)
+            if generator is not None:
+                return torch.multinomial(probs, num_samples=1, generator=generator).item()
+            else:
+                return torch.multinomial(probs, num_samples=1).item()
 
     async def generate(
         self,
@@ -345,6 +396,10 @@ class ContinuousBatchingEngine:
         max_tokens: int = 256,
         temperature: float = 1.0,
         top_p: float = 1.0,
+        frequency_penalty: float = 0.0,
+        presence_penalty: float = 0.0,
+        logit_bias: Optional[Dict[int, float]] = None,
+        seed: Optional[int] = None,
         stop_sequences: Optional[List[str]] = None,
         stream: bool = False
     ):
@@ -357,6 +412,10 @@ class ContinuousBatchingEngine:
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
             top_p: Top-p sampling parameter
+            frequency_penalty: Penalty for token frequency (reduces repetition)
+            presence_penalty: Penalty for token presence (increases diversity)
+            logit_bias: Dict mapping token IDs to bias values
+            seed: Random seed for reproducible sampling
             stop_sequences: List of stop sequences
             stream: Whether to stream output
 
@@ -396,6 +455,10 @@ class ContinuousBatchingEngine:
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            logit_bias=logit_bias,
+            seed=seed,
             stop_tokens=stop_tokens,
             stream_callback=stream_callback if stream else None,
             completion_future=completion_future
@@ -418,6 +481,10 @@ class ContinuousBatchingEngine:
         max_tokens: int = 256,
         temperature: float = 1.0,
         top_p: float = 1.0,
+        frequency_penalty: float = 0.0,
+        presence_penalty: float = 0.0,
+        logit_bias: Optional[Dict[int, float]] = None,
+        seed: Optional[int] = None,
         stop_sequences: Optional[List[str]] = None,
         timeout: float = 300.0,
     ) -> Dict:
@@ -430,6 +497,10 @@ class ContinuousBatchingEngine:
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
             top_p: Top-p sampling parameter
+            frequency_penalty: Penalty for token frequency (reduces repetition)
+            presence_penalty: Penalty for token presence (increases diversity)
+            logit_bias: Dict mapping token IDs to bias values
+            seed: Random seed for reproducible sampling
             stop_sequences: List of stop sequences
             timeout: Maximum time to wait (seconds)
 
@@ -466,6 +537,10 @@ class ContinuousBatchingEngine:
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            logit_bias=logit_bias,
+            seed=seed,
             stop_tokens=stop_tokens,
         )
 

@@ -5,7 +5,7 @@ Manages request queue and batch assembly using FIFO scheduling.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Callable, Set
+from typing import List, Optional, Dict, Callable, Set, Any
 from collections import deque
 import asyncio
 import time
@@ -23,6 +23,10 @@ class InferenceRequest:
     max_tokens: int = 256
     temperature: float = 1.0
     top_p: float = 1.0
+    frequency_penalty: float = 0.0
+    presence_penalty: float = 0.0
+    logit_bias: Optional[Dict[int, float]] = None
+    seed: Optional[int] = None
     stop_tokens: Set[int] = field(default_factory=lambda: {0})
     stream_callback: Optional[Callable] = None
     completion_future: Optional[asyncio.Future] = None
@@ -154,6 +158,10 @@ class RequestScheduler:
                     max_tokens=request.max_tokens,
                     temperature=request.temperature,
                     top_p=request.top_p,
+                    frequency_penalty=request.frequency_penalty,
+                    presence_penalty=request.presence_penalty,
+                    logit_bias=request.logit_bias,
+                    seed=request.seed,
                     output_callback=request.stream_callback,
                     stop_tokens=request.stop_tokens
                 )

@@ -5,7 +5,7 @@ Pre-allocates state memory for maximum batch size and provides O(1) slot allocat
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Set, Callable, Dict
+from typing import Optional, List, Set, Callable, Dict, Any
 from enum import Enum
 from collections import deque
 import threading
@@ -37,6 +37,11 @@ class StateSlot:
     output_callback: Optional[Callable] = None
     temperature: float = 1.0
     top_p: float = 1.0
+    frequency_penalty: float = 0.0
+    presence_penalty: float = 0.0
+    logit_bias: Optional[Dict[int, float]] = None
+    seed: Optional[int] = None
+    generator: Optional[torch.Generator] = None
     output_tokens: List[int] = field(default_factory=list)
     stop_tokens: Set[int] = field(default_factory=lambda: {0})
     prompt_tokens: List[int] = field(default_factory=list)
@@ -51,6 +56,11 @@ class StateSlot:
         self.output_callback = None
         self.temperature = 1.0
         self.top_p = 1.0
+        self.frequency_penalty = 0.0
+        self.presence_penalty = 0.0
+        self.logit_bias = None
+        self.seed = None
+        self.generator = None
         self.output_tokens = []
         self.stop_tokens = {0}
         self.prompt_tokens = []
@@ -116,6 +126,10 @@ class StatePool:
         max_tokens: int,
         temperature: float = 1.0,
         top_p: float = 1.0,
+        frequency_penalty: float = 0.0,
+        presence_penalty: float = 0.0,
+        logit_bias: Optional[Dict[int, float]] = None,
+        seed: Optional[int] = None,
         output_callback: Optional[Callable] = None,
         stop_tokens: Optional[Set[int]] = None
     ) -> Optional[int]:
@@ -128,6 +142,10 @@ class StatePool:
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
             top_p: Top-p sampling parameter
+            frequency_penalty: Penalty for token frequency (reduces repetition)
+            presence_penalty: Penalty for token presence (increases diversity)
+            logit_bias: Dict mapping token IDs to bias values
+            seed: Random seed for reproducible sampling
             output_callback: Callback for streaming output
             stop_tokens: Set of token IDs that stop generation
 
@@ -153,6 +171,16 @@ class StatePool:
             slot.output_callback = output_callback
             slot.temperature = temperature
             slot.top_p = top_p
+            slot.frequency_penalty = frequency_penalty
+            slot.presence_penalty = presence_penalty
+            slot.logit_bias = logit_bias
+            slot.seed = seed
+            # Initialize generator for reproducible sampling
+            if seed is not None:
+                slot.generator = torch.Generator(device=self.config.device)
+                slot.generator.manual_seed(seed)
+            else:
+                slot.generator = None
             slot.output_tokens = []
             slot.stop_tokens = stop_tokens if stop_tokens else {0}
             slot.prompt_tokens = prompt_tokens
