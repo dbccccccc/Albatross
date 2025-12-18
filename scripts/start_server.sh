@@ -34,7 +34,7 @@ if [ ! -f "${MODEL_PATH}.pth" ]; then
 fi
 
 # Start server
-python -m server.main \
+python3 -m server.main \
     --model-path "$MODEL_PATH" \
     --tokenizer-path reference/rwkv_vocab_v20230424.txt \
     --host 0.0.0.0 \

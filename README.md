@@ -4,6 +4,34 @@ efficient RWKV inference engine
 
 fast fwd & bwd CUDA kernels: https://github.com/BlinkDL/RWKV-CUDA/tree/main/rwkv7_fast_fused
 
+## Control Plane (Multi-GPU / Multi-Model)
+
+This repo now supports a **control-plane + multi-worker** layout:
+
+- **Control Plane**: web dashboard + management API (start/stop workers, logs, proxy)
+- **Worker**: `server.main` process (1 worker = 1 model instance, optionally bound to 1 GPU)
+
+Start control plane:
+
+```bash
+python3 -m control_plane.main --host 0.0.0.0 --port 9000
+```
+
+Open dashboard: `http://localhost:9000`
+
+You can start workers from the dashboard, or via API:
+
+```bash
+curl -X POST http://localhost:9000/api/workers/start \
+  -H 'Content-Type: application/json' \
+  -d '{"model_path":"models/RWKV-7-World-0.4B-v2.8-20241022-ctx4096","gpu_id":0,"max_batch_size":64}'
+```
+
+The dashboard playground talks to the worker through:
+
+- `POST /api/workers/{worker_id}/proxy/v1/completions`
+- `POST /api/workers/{worker_id}/proxy/v1/chat/completions`
+
 ## Result @ 251201
 
 145+ token/s RWKV-7 7.2B fp16 bsz1 @ RTX5090
