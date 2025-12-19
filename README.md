@@ -2,7 +2,7 @@
 
 efficient RWKV inference engine
 
-Check benchmark.py first
+**Check benchmark.py first**.
 
 Faster fwd & bwd CUDA kernels: https://github.com/BlinkDL/RWKV-CUDA/tree/main/rwkv7_fast_fused
 
